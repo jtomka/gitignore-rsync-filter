@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+
+repo_exclude=".git/info/exclude"
+
+# filter | incexc
+format="incexc" 
+
+include_file=""
+exclude_file=""
+
+if [ ! -d ".git" ]; then
+	echo "--help=\"Directory .git not found\""
+	exit 1
+fi
+
+if [ ! -r ".gitignore" ]; then
+	echo "--help=\"File .gitignore not found\""
+	exit 1
+fi
+
+(
+[ -e "$repo_exclude" ] && echo $repo_exclude
+echo .gitignore
+git ls-files --recurse-submodules |grep '\(.*/\)\?\.gitignore$'
+) | sort | uniq | (
+echo "- .git/"
+while read file; do
+	if [ "$file" = "$repo_exclude" ]; then
+		dir=""
+	else
+		dir="$(dirname "$file" |grep -v '^\.$'|sed -e 's~\(.\+\)~/\1~')"
+	fi
+	cat "$file" \
+	| grep -v '^[[:space:]]*\(#.*\)\?$' \
+	| sed	-e 's~^[[:space:]]*\(.*\)[[:space:]]*$~\1~' \
+		-e 's~^\*\*/\(.*\)~\1~' \
+		-e 's~^\([!]\)\([^/].*\)$~\1/**/\2~' \
+		-e 's~^\([^!/].*\)$~/**/\1~' \
+		-e 's~^\([^!].*\)$~- '"$dir"'\1~' \
+		-e 's~^[!]\(.*\)$~+ '"$dir"'\1~'
+done
+) | if [ "$format" == "incexc" ]; then
+	while read mode file; do
+		if [ "$mode" = "-" ]; then
+			if [ -z "$exclude_file" ]; then
+				exclude_file="$(mktemp -t gitignore-rsync-args-exclude)"
+				echo "--exclude-from=$exclude_file"
+			fi
+			echo "$file" >> "$exclude_file"
+		elif [ "$mode" = "+" ]; then
+			if [ -z "$include_file" ]; then
+				include_file="$(mktemp -t gitignore-rsync-args-include)"
+				echo "--include-from=$include_file"
+			fi
+			echo "$file" >> "$include_file"
+		fi
+	done
+elif [ "$format" == "filter" ]; then
+	cat
+fi
+
